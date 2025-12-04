@@ -11,13 +11,19 @@ import { uploadData, getUrl } from 'aws-amplify/storage';
 
 // --- 1. AWS CONFIGURATION ---
 // Read from environment variables (set in .env file for local, or Amplify Console for production)
+// Helper function to safely get and trim env vars
+const getEnvVar = (key, defaultValue) => {
+  const value = import.meta.env[key];
+  return value ? String(value).trim() : defaultValue;
+};
+
 const CONFIG = {
-  region: import.meta.env.VITE_REGION || "us-east-1",
-  userPoolId: import.meta.env.VITE_USER_POOL_ID || "us-east-1_H0an9OqvV", 
-  userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID || "3ra797d8odf24l9jlbuc6h04o0",
-  identityPoolId: import.meta.env.VITE_IDENTITY_POOL_ID || "us-east-1:6b3db9ae-94b3-40f1-b6f9-4527fdefcfeb",
-  bucketName: import.meta.env.VITE_BUCKET_NAME || "blog-media-assets", 
-  apiUrl: import.meta.env.VITE_API_URL || "https://ha7fh2cfyc.execute-api.us-east-1.amazonaws.com/dev" 
+  region: getEnvVar('VITE_REGION', "us-east-1"),
+  userPoolId: getEnvVar('VITE_USER_POOL_ID', "us-east-1_H0an9OqvV"), 
+  userPoolClientId: getEnvVar('VITE_USER_POOL_CLIENT_ID', "3ra797d8odf24l9jlbuc6h04o0"),
+  identityPoolId: getEnvVar('VITE_IDENTITY_POOL_ID', "us-east-1:6b3db9ae-94b3-40f1-b6f9-4527fdefcfeb"),
+  bucketName: getEnvVar('VITE_BUCKET_NAME', "blog-media-assets"), 
+  apiUrl: getEnvVar('VITE_API_URL', "https://ha7fh2cfyc.execute-api.us-east-1.amazonaws.com/dev")
 };
 
 // Debug: Log configuration (helps diagnose issues in production)
