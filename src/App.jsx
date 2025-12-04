@@ -899,66 +899,68 @@ export default function App() {
     // State for the resolved signed URL of the profile picture
     const [profilePictureUrl, setProfilePictureUrl] = useState(null);
 
+    // Fetch profile data function (can be called from multiple places)
+    const fetchProfile = async () => {
+      let profile = null;
+      let pictureKey = null;
+      
+      // Try to fetch from API first
+      try {
+        profile = await apiCall('/profile', 'GET');
+        console.log('Profile data from API:', profile);
+        
+        // Handle Username from API
+        if (profile?.preferred_username) {
+          setProfilePreferredUsername(profile.preferred_username);
+          setPreferredUsername(profile.preferred_username);
+        } else if (profile?.preferredUsername) {
+          setProfilePreferredUsername(profile.preferredUsername);
+          setPreferredUsername(profile.preferredUsername);
+        } else if (profile?.username) {
+          setProfilePreferredUsername(profile.username);
+          setPreferredUsername(profile.username);
+        }
+
+        // Try to get profile picture key from API response
+        pictureKey = profile?.['custom:profile_picture_key'] || 
+                    profile?.profile_picture_key ||
+                    profile?.attributes?.['custom:profile_picture_key'] ||
+                    profile?.attributes?.profile_picture_key;
+      } catch (err) {
+        console.warn("Failed to fetch profile from API (CORS or server error):", err.message);
+        // Continue to try Cognito fallback below
+      }
+
+      // Fallback: Try to get profile picture key from Cognito user attributes directly
+      if (!pictureKey && user?.attributes) {
+        pictureKey = user.attributes['custom:profile_picture_key'] || 
+                    user.attributes.profile_picture_key;
+        console.log('Using profile picture key from Cognito user attributes:', pictureKey);
+      }
+
+      // If we still don't have a preferred username from API, use Cognito username as fallback
+      if (!profile && user?.username) {
+        setProfilePreferredUsername(user.username);
+        setPreferredUsername(user.username);
+      }
+
+      // Generate signed URL for profile picture if we have a key
+      if (pictureKey) {
+        try {
+          const url = await getSignedUrl(pictureKey);
+          console.log('Signed URL generated:', url);
+          setProfilePictureUrl(url);
+        } catch (urlErr) {
+          console.error("Error signing profile URL:", urlErr);
+        }
+      } else {
+        console.log('No profile picture key found');
+        setProfilePictureUrl(null);
+      }
+    };
+
     // Fetch profile data on mount
     useEffect(() => {
-      async function fetchProfile() {
-        let profile = null;
-        let pictureKey = null;
-        
-        // Try to fetch from API first
-        try {
-          profile = await apiCall('/profile', 'GET');
-          console.log('Profile data from API:', profile);
-          
-          // Handle Username from API
-          if (profile?.preferred_username) {
-            setProfilePreferredUsername(profile.preferred_username);
-            setPreferredUsername(profile.preferred_username);
-          } else if (profile?.preferredUsername) {
-            setProfilePreferredUsername(profile.preferredUsername);
-            setPreferredUsername(profile.preferredUsername);
-          } else if (profile?.username) {
-            setProfilePreferredUsername(profile.username);
-            setPreferredUsername(profile.username);
-          }
-
-          // Try to get profile picture key from API response
-          pictureKey = profile?.['custom:profile_picture_key'] || 
-                      profile?.profile_picture_key ||
-                      profile?.attributes?.['custom:profile_picture_key'] ||
-                      profile?.attributes?.profile_picture_key;
-        } catch (err) {
-          console.warn("Failed to fetch profile from API (CORS or server error):", err.message);
-          // Continue to try Cognito fallback below
-        }
-
-        // Fallback: Try to get profile picture key from Cognito user attributes directly
-        if (!pictureKey && user?.attributes) {
-          pictureKey = user.attributes['custom:profile_picture_key'] || 
-                      user.attributes.profile_picture_key;
-          console.log('Using profile picture key from Cognito user attributes:', pictureKey);
-        }
-
-        // If we still don't have a preferred username from API, use Cognito username as fallback
-        if (!profile && user?.username) {
-          setProfilePreferredUsername(user.username);
-          setPreferredUsername(user.username);
-        }
-
-        // Generate signed URL for profile picture if we have a key
-        if (pictureKey) {
-          try {
-            const url = await getSignedUrl(pictureKey);
-            console.log('Signed URL generated:', url);
-            setProfilePictureUrl(url);
-          } catch (urlErr) {
-            console.error("Error signing profile URL:", urlErr);
-          }
-        } else {
-          console.log('No profile picture key found');
-        }
-      }
-      
       if (user) {
         fetchProfile();
       }
@@ -989,10 +991,14 @@ export default function App() {
         try {
           await apiCall('/profile', 'PUT', { profile_picture_key: key });
           alert("Profile picture updated successfully!");
+          // Refresh profile data to ensure everything is in sync
+          await fetchProfile();
         } catch (apiErr) {
           console.warn("Profile picture uploaded to S3, but failed to update backend:", apiErr);
           // Still show success since the image is uploaded and visible
           alert("Profile picture uploaded! (Note: Backend update failed - image may not persist after refresh. Please check CORS configuration.)");
+          // Still try to refresh profile data
+          await fetchProfile();
         }
       } catch (err) {
         console.error("Upload failed:", err);
@@ -1024,6 +1030,8 @@ export default function App() {
         setProfilePreferredUsername(preferredUsername.trim());
         setIsEditingUsername(false);
         alert("Preferred username updated successfully!");
+        // Refresh profile data to ensure everything is in sync
+        await fetchProfile();
       } catch (err) {
         console.error("Failed to update preferred username:", err);
         alert("Failed to update preferred username: " + err.message);
