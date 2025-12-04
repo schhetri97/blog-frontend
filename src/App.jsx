@@ -10,13 +10,14 @@ import { signIn, signUp, confirmSignUp, signOut, getCurrentUser, fetchAuthSessio
 import { uploadData, getUrl } from 'aws-amplify/storage';
 
 // --- 1. AWS CONFIGURATION ---
+// Read from environment variables (set in .env file for local, or Amplify Console for production)
 const CONFIG = {
-  region: "us-east-1",
-  userPoolId: "us-east-1_H0an9OqvV", 
-  userPoolClientId: "3ra797d8odf24l9jlbuc6h04o0",
-  identityPoolId: "us-east-1:6b3db9ae-94b3-40f1-b6f9-4527fdefcfeb",
-  bucketName: "blog-media-assets", 
-  apiUrl: "https://ha7fh2cfyc.execute-api.us-east-1.amazonaws.com/dev" 
+  region: import.meta.env.VITE_REGION || "us-east-1",
+  userPoolId: import.meta.env.VITE_USER_POOL_ID || "us-east-1_H0an9OqvV", 
+  userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID || "3ra797d8odf24l9jlbuc6h04o0",
+  identityPoolId: import.meta.env.VITE_IDENTITY_POOL_ID || "us-east-1:6b3db9ae-94b3-40f1-b6f9-4527fdefcfeb",
+  bucketName: import.meta.env.VITE_BUCKET_NAME || "blog-media-assets", 
+  apiUrl: import.meta.env.VITE_API_URL || "https://ha7fh2cfyc.execute-api.us-east-1.amazonaws.com/dev" 
 };
 
 // --- 2. AMPLIFY CONFIGURATION ---
