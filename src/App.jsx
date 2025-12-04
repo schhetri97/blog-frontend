@@ -20,23 +20,43 @@ const CONFIG = {
   apiUrl: import.meta.env.VITE_API_URL || "https://ha7fh2cfyc.execute-api.us-east-1.amazonaws.com/dev" 
 };
 
-// --- 2. AMPLIFY CONFIGURATION ---
-Amplify.configure({
-  Auth: {
-    Cognito: {
-      userPoolId: CONFIG.userPoolId,
-      userPoolClientId: CONFIG.userPoolClientId,
-      identityPoolId: CONFIG.identityPoolId,
-      allowGuestAccess: true
-    }
-  },
-  Storage: {
-    S3: {
-      bucket: CONFIG.bucketName,
-      region: CONFIG.region,
-    }
+// Debug: Log configuration (helps diagnose issues in production)
+console.log('App Configuration:', {
+  region: CONFIG.region,
+  userPoolId: CONFIG.userPoolId ? CONFIG.userPoolId.substring(0, 20) + '...' : 'missing',
+  apiUrl: CONFIG.apiUrl,
+  bucketName: CONFIG.bucketName,
+  envVarsLoaded: {
+    VITE_REGION: !!import.meta.env.VITE_REGION,
+    VITE_USER_POOL_ID: !!import.meta.env.VITE_USER_POOL_ID,
+    VITE_API_URL: !!import.meta.env.VITE_API_URL,
+    VITE_BUCKET_NAME: !!import.meta.env.VITE_BUCKET_NAME
   }
 });
+
+// --- 2. AMPLIFY CONFIGURATION ---
+try {
+  Amplify.configure({
+    Auth: {
+      Cognito: {
+        userPoolId: CONFIG.userPoolId,
+        userPoolClientId: CONFIG.userPoolClientId,
+        identityPoolId: CONFIG.identityPoolId,
+        allowGuestAccess: true
+      }
+    },
+    Storage: {
+      S3: {
+        bucket: CONFIG.bucketName,
+        region: CONFIG.region,
+      }
+    }
+  });
+  console.log('Amplify configured successfully');
+} catch (error) {
+  console.error('Error configuring Amplify:', error);
+  // Continue anyway - app can work in guest mode
+}
 
 // --- 3. STORAGE HELPER ---
 // Helper function to get signed URLs that works for both authenticated and guest users
@@ -91,24 +111,46 @@ const apiCall = async (endpoint, method = 'GET', body = null) => {
       headers['Authorization'] = session.tokens.idToken.toString();
     }
   } catch (e) {
-    // User not logged in
+    // User not logged in or auth service unavailable - continue without auth token
+    // This is expected for guest users
+    console.log('No auth session available (guest mode)');
   }
 
+  const fullUrl = `${CONFIG.apiUrl}${endpoint}`;
+  console.log(`API Call: ${method} ${fullUrl}`, body ? { body } : '');
+  
   try {
-    const response = await fetch(`${CONFIG.apiUrl}${endpoint}`, {
+    const response = await fetch(fullUrl, {
       method,
       headers,
       body: body ? JSON.stringify(body) : null
     });
 
+    console.log(`API Response: ${response.status} ${response.statusText} for ${method} ${endpoint}`);
+
     if (!response.ok) {
         const errorText = await response.text();
+        console.error(`API Error Details:`, {
+          status: response.status,
+          statusText: response.statusText,
+          endpoint,
+          errorText,
+          headers: Object.fromEntries(response.headers.entries())
+        });
         throw new Error(`API Error: ${response.status} - ${errorText}`);
     }
     const text = await response.text();
-    return text ? JSON.parse(text) : {};
+    const parsed = text ? JSON.parse(text) : {};
+    console.log(`API Success: ${method} ${endpoint}`, Array.isArray(parsed) ? `${parsed.length} items` : 'data received');
+    return parsed;
   } catch (err) {
-    console.error("API Call Failed:", err);
+    console.error("API Call Failed:", {
+      endpoint,
+      method,
+      url: fullUrl,
+      error: err.message,
+      stack: err.stack
+    });
     throw err;
   }
 };
@@ -419,7 +461,11 @@ export default function App() {
     try {
       const currentUser = await getCurrentUser();
       setUser(currentUser);
+      console.log('Auth check successful, user:', currentUser.username);
     } catch (err) {
+      // Silently fail - user is not logged in or auth service unavailable
+      // This is expected for guest users, so we don't show errors
+      console.log('No authenticated user (guest mode):', err.name || err.message);
       setUser(null);
     }
   }
@@ -427,22 +473,39 @@ export default function App() {
   async function fetchPosts() {
     setLoading(true);
     try {
+      console.log('Fetching posts from:', CONFIG.apiUrl + '/posts');
       const data = await apiCall('/posts');
+      console.log('Posts fetched successfully:', data?.length || 0, 'posts');
       const sorted = (Array.isArray(data) ? data : []).sort((a, b) => 
         new Date(b.timestamp) - new Date(a.timestamp)
       );
       setPosts(sorted);
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching posts:', err);
+      console.error('Error details:', {
+        message: err.message,
+        stack: err.stack,
+        apiUrl: CONFIG.apiUrl
+      });
+      // Set empty array on error so UI doesn't break
+      setPosts([]);
     } finally {
       setLoading(false);
     }
   }
 
   async function handleLogout() {
-    await signOut();
-    setUser(null);
-    setView('home');
+    try {
+      await signOut();
+      setUser(null);
+      setView('home');
+      console.log('Logout successful');
+    } catch (err) {
+      console.error('Logout error:', err);
+      // Still clear local state even if signOut fails
+      setUser(null);
+      setView('home');
+    }
   }
 
   async function fetchComments(postId) {
@@ -1048,12 +1111,22 @@ export default function App() {
     async function handleAuth() {
       try {
         if (step === 'login') {
+          console.log('Attempting sign in with email:', email);
+          console.log('Cognito Config:', {
+            userPoolId: CONFIG.userPoolId,
+            userPoolClientId: CONFIG.userPoolClientId,
+            region: CONFIG.region
+          });
           await signIn({ username: email, password });
-          checkAuth();
+          console.log('Sign in successful, checking auth...');
+          // Wait a moment for auth state to propagate
+          await new Promise(resolve => setTimeout(resolve, 100));
+          await checkAuth();
           setView('home');
         } else if (step === 'register') {
           // FIX: Use UUID for username to support email alias
           const uniqueUsername = crypto.randomUUID();
+          console.log('Attempting sign up with username:', uniqueUsername);
           await signUp({ 
             username: uniqueUsername, 
             password, 
@@ -1064,14 +1137,34 @@ export default function App() {
           setStep('confirm');
         } else if (step === 'confirm') {
           const pendingUsername = localStorage.getItem('pendingUsername') || email;
+          console.log('Attempting confirmation with username:', pendingUsername);
           await confirmSignUp({ username: pendingUsername, confirmationCode: code });
           localStorage.removeItem('pendingUsername');
           setStep('login');
           alert("Account confirmed! Please log in.");
         }
       } catch (err) {
-        console.error("Auth Error:", err);
-        alert("Auth Error: " + err.message);
+        console.error("Auth Error Details:", {
+          name: err.name,
+          message: err.message,
+          stack: err.stack,
+          error: err
+        });
+        
+        // Provide more helpful error messages
+        let errorMessage = err.message || 'Unknown error occurred';
+        
+        if (err.name === 'NetworkError' || errorMessage.includes('network') || errorMessage.includes('NetworkError')) {
+          errorMessage = 'Network error: Unable to connect to authentication service. Please check your internet connection and try again.';
+        } else if (err.name === 'NotAuthorizedException') {
+          errorMessage = 'Invalid email or password. Please try again.';
+        } else if (err.name === 'UserNotFoundException') {
+          errorMessage = 'No account found with this email. Please sign up first.';
+        } else if (err.name === 'UserNotConfirmedException') {
+          errorMessage = 'Please confirm your email address first. Check your inbox for the confirmation code.';
+        }
+        
+        alert(`Auth Error: ${errorMessage}`);
       }
     }
 
