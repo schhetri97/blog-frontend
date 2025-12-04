@@ -716,6 +716,7 @@ export default function App() {
     const [commentText, setCommentText] = useState('');
     const [signedImageUrl, setSignedImageUrl] = useState(null);
     const [authorProfilePictureUrl, setAuthorProfilePictureUrl] = useState(null);
+    const [submittingComment, setSubmittingComment] = useState(false);
     
     // Extract author info from post (support multiple possible field names)
     // The backend now provides author information directly in the post response
@@ -747,8 +748,9 @@ export default function App() {
     if (!activePost) return null;
 
     async function handlePostComment() {
-      if (!commentText.trim()) return;
+      if (!commentText.trim() || submittingComment) return;
       
+      setSubmittingComment(true);
       try {
         await apiCall(`/posts/${activePost.postId}/comments`, 'POST', { text: commentText });
         setCommentText('');
@@ -756,6 +758,8 @@ export default function App() {
       } catch (err) {
         console.error("Failed to post comment:", err);
         alert("Failed to post comment. Ensure you are logged in.");
+      } finally {
+        setSubmittingComment(false);
       }
     }
 
@@ -869,14 +873,23 @@ export default function App() {
           {user ? (
             <div className="flex gap-2">
               <input
-                className="flex-1 p-3 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none"
+                className="flex-1 p-3 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="Write a comment..."
                 value={commentText}
                 onChange={e => setCommentText(e.target.value)}
-                onKeyPress={e => e.key === 'Enter' && handlePostComment()}
+                onKeyPress={e => e.key === 'Enter' && !submittingComment && handlePostComment()}
+                disabled={submittingComment}
               />
-              <button onClick={handlePostComment} className="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700">
-                <Send size={20} />
+              <button 
+                onClick={handlePostComment} 
+                disabled={submittingComment || !commentText.trim()}
+                className="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[48px]"
+              >
+                {submittingComment ? (
+                  <Loader size={20} className="animate-spin" />
+                ) : (
+                  <Send size={20} />
+                )}
               </button>
             </div>
           ) : (
